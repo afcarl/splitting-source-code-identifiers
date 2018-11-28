@@ -1,6 +1,7 @@
 import pandas as pd
 import json
 from tqdm import tqdm
+import os
 
 print('Reading data...')
 
@@ -12,6 +13,7 @@ identifiers = []
 targets = []
 
 skipped = 0
+n = 0
 
 for token in tqdm(split_tokens, desc = 'Creating examples...'):
     try:
@@ -35,6 +37,16 @@ for token in tqdm(split_tokens, desc = 'Creating examples...'):
     assert len(no_space_chars) == len(space_locations)
     identifiers.append(no_space_chars)
     targets.append(space_locations)
+    if len(identifiers) > 1_000_000:
+        assert len(identifiers) == len(targets)
+        with open(f'data/all_examples_{n}.json', 'w+') as f:
+            for identifier, target in zip(identifiers, targets):
+                example = {'identifier': identifier, 'target': target}
+                json.dump(example, f)
+                f.write('\n')
+        identifiers = []
+        targets = []
+        n += 1
 
 assert len(identifiers) == len(targets)
 
@@ -42,8 +54,8 @@ print(f'Got {len(identifiers)} examples, skipped {skipped} examples')
 
 print('Writing to file...')
 
-with open('data/all_example.json', 'w+') as w:
+with open(f'data/all_examples_{n}.json', 'w+') as f:
     for identifier, target in zip(identifiers, targets):
         example = {'identifier': identifier, 'target': target}
-        json.dump(example, w)
-        w.write('\n')
+        json.dump(example, f)
+        f.write('\n')
