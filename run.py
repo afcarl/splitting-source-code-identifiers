@@ -17,7 +17,7 @@ parser.add_argument('--n_layers', type=int, default=2)
 parser.add_argument('--unidirectional', action='store_true', default=False)
 parser.add_argument('--batch_size', type=int, default=512)
 parser.add_argument('--chunks', type=int, default=10)
-parser.add_argument('--print_every', type=int, default=100)
+parser.add_argument('--print_every', type=int, default=10)
 parser.add_argument('--seed', type=int, default=1234)
 args = parser.parse_args()
 
@@ -130,6 +130,7 @@ def train(model, path, device, criterion, optimizer):
     model.train()
 
     epoch_loss = 0
+    epoch_f1 = 0
 
     for i, examples in enumerate(file_iterator(path, args.batch_size, args.chunks), start=1):
 
@@ -169,9 +170,10 @@ def train(model, path, device, criterion, optimizer):
 
 def evaluate(model, path, device, criterion):
 
-    model.train()
+    model.eval()
 
     epoch_loss = 0
+    epoch_f1 = 0
 
     with torch.no_grad():
 
