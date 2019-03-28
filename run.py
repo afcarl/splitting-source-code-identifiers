@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
+from sklearn.metrics import f1_score
+
 import random
 import json
 import string
@@ -17,7 +19,7 @@ parser.add_argument('--n_layers', type=int, default=2)
 parser.add_argument('--unidirectional', action='store_true', default=False)
 parser.add_argument('--batch_size', type=int, default=512)
 parser.add_argument('--chunks', type=int, default=10)
-parser.add_argument('--print_every', type=int, default=10)
+parser.add_argument('--print_every', type=int, default=1)
 parser.add_argument('--seed', type=int, default=1234)
 args = parser.parse_args()
 
@@ -125,12 +127,29 @@ def tensor_iterator(examples, batch_size):
 
         yield torch.LongTensor(batch_x), torch.FloatTensor(batch_y)
 
+def calculate_f1(predictions, targets):
+
+    predictions = torch.round(torch.sigmoid(predictions)).tolist()
+    targets = targets.tolist()
+
+    binary_f1 = sum([f1_score(t, p, average='binary') for t, p in zip(targets, predictions)])
+    micro_f1 = sum([f1_score(t, p, average='micro') for t, p in zip(targets, predictions)])
+    macro_f1 = sum([f1_score(t, p, average='macro') for t, p in zip(targets, predictions)])
+    weighted_f1 = sum([f1_score(t, p, average='weighted') for t, p in zip(targets, predictions)])
+    
+    return binary_f1, micro_f1, macro_f1, weighted_f1
+
 def train(model, path, device, criterion, optimizer):
 
     model.train()
 
     epoch_loss = 0
-    epoch_f1 = 0
+    epoch_binary_f1 = 0
+    epoch_micro_f1 = 0
+    epoch_macro_f1 = 0
+    epoch_weighted_f1 = 0
+    epoch_batches = 0
+    epoch_examples = 0
 
     for i, examples in enumerate(file_iterator(path, args.batch_size, args.chunks), start=1):
 
@@ -149,23 +168,31 @@ def train(model, path, device, criterion, optimizer):
 
             loss = criterion(predictions, y)
 
+            binary_f1, micro_f1, macro_f1, weighted_f1 = calculate_f1(predictions, y)
+
             del predictions
             del y
 
             masked_loss = loss * mask
 
-            loss = masked_loss.sum() / mask.sum()
+            loss = masked_loss.sum() / mask.shape[0]
 
             loss.backward()
 
             optimizer.step()
 
             epoch_loss += loss.item()
+            epoch_binary_f1 += binary_f1
+            epoch_micro_f1 += micro_f1
+            epoch_macro_f1 += macro_f1
+            epoch_weighted_f1 += weighted_f1
+            epoch_examples += mask.shape[0]
+            epoch_batches += 1
 
         if i % args.print_every == 0:
-            print(f'Examples: {i*args.batch_size*args.chunks}, Loss: {epoch_loss/i:.3f}')
+            print(f'Examples: {i*args.batch_size*args.chunks:08}, Avg Loss per Batch: {epoch_loss/epoch_batches:.3f}, Avg F1 per Example: {epoch_binary_f1/epoch_examples:.3f}, {epoch_micro_f1/epoch_examples:.3f}, {epoch_macro_f1/epoch_examples:.3f}, {epoch_weighted_f1/epoch_examples:.3f}')
 
-    return epoch_loss / i, 0
+    return epoch_loss / epoch_batches, epoch_binary_f1 / epoch_examples, epoch_micro_f1 / epoch_examples, epoch_macro_f1 / epoch_examples, epoch_weighted_f1 / epoch_examples
     
 
 def evaluate(model, path, device, criterion):
@@ -173,7 +200,12 @@ def evaluate(model, path, device, criterion):
     model.eval()
 
     epoch_loss = 0
-    epoch_f1 = 0
+    epoch_binary_f1 = 0
+    epoch_micro_f1 = 0
+    epoch_macro_f1 = 0
+    epoch_weighted_f1 = 0
+    epoch_batches = 0
+    epoch_examples = 0
 
     with torch.no_grad():
 
@@ -192,19 +224,28 @@ def evaluate(model, path, device, criterion):
 
                 loss = criterion(predictions, y)
 
+                binary_f1, micro_f1, macro_f1, weighted_f1 = calculate_f1(predictions, y)
+
                 del predictions
                 del y
 
                 masked_loss = loss * mask
 
-                loss = masked_loss.sum() / mask.sum()
+                loss = masked_loss.sum()
 
                 epoch_loss += loss.item()
+                epoch_binary_f1 += binary_f1
+                epoch_micro_f1 += micro_f1
+                epoch_macro_f1 += macro_f1
+                epoch_weighted_f1 += weighted_f1
+                epoch_batches += 1
+                epoch_examples += mask.shape[0]
 
             if i % args.print_every == 0:
-                print(f'Examples: {i*args.batch_size*args.chunks}, Loss: {epoch_loss/i:.3f}')
+                print(f'Examples: {i*args.batch_size*args.chunks:08}, Avg Loss per Batch: {epoch_loss/epoch_batches:.3f}, Avg F1 per Example: {epoch_binary_f1/epoch_examples:.3f}, {epoch_micro_f1/epoch_examples:.3f}, {epoch_macro_f1/epoch_examples:.3f}, {epoch_weighted_f1/epoch_examples:.3f}')
 
-    return epoch_loss / i, 0
+
+    return epoch_loss / epoch_batches, epoch_binary_f1 / epoch_examples, epoch_micro_f1 / epoch_examples, epoch_macro_f1 / epoch_examples, epoch_weighted_f1 / epoch_examples
 
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
